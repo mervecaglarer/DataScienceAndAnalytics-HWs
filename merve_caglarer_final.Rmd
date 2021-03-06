@@ -1,0 +1,505 @@
+---
+title: "CENG 4512 Data Science and Analytics Final Homework"
+author: "Merve Çağlarer"
+date: "19 01 2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Online Shoppers’ Intention
+
+### Introduction
+
+We are using the “Online Shoppers Intention” (https://archive.ics.uci.edu/ml/datasets/Online+Shoppers+Purchasing+Intention+Datase) dataset related to visits of customers to an online store and their decision on purchase a products. The dataset consists of 18 features which are 10 numerical and 8 categorical belonging to 12,330 sessions. 
+The goal of the project is to analyze with caret library by using classicifation models around online shoppers’ intentions.
+
+This project is structured to cover the following 5 topics:
+
+Section 1: Data import\
+Section 2: Data Exploration\
+Section 3: Data Preprocessing\
+Section 4: Training\
+Section 5: Testing and comparisons\
+Section 6: Prediction\
+
+### Section 1: Data import
+
+```{r dataset}
+library(caret)
+library(ellipse)
+
+shoppers <- read.csv("C:/Users/Merve/Downloads/DataScience/r codes/online_shoppers_intention.csv")
+str(shoppers)
+
+nrow(shoppers[duplicated(shoppers),]) 
+#number of duplicated variables
+shoppers <- shoppers[!duplicated(shoppers),]
+nrow(shoppers) 
+# after removing 125 duplitaced variables, 12205 records remain.
+
+head(shoppers[, 1:9])
+head(shoppers[, 10:18])
+```
+
+### Section 2: Data Exploration
+
+-Create the training(%80) and testing(%20) datasets.\ Training data for the model fitting, testing data for estimating the model’s accuracy.
+
+```{r traintest}
+#The set.seed() function sets the starting number used to generate a sequence of random numbers – it ensures that you get the same result if you start with that same seed each time you run the same process.
+set.seed(100) 
+
+trainRowNumber <- createDataPartition(shoppers$Revenue, p=0.8, list=FALSE)
+trainData <- shoppers[trainRowNumber,]
+testData <- shoppers[-trainRowNumber,]
+
+x = trainData[, 1:17]
+y = trainData$Revenue
+```
+
+-Let's show Descriptive Statistics for each column in the training dataset. For this, skim_to_wide () function in the Skimr package was used. This function generates a beautiful data frame containing the descriptive statistics for each column.
+
+```{r statistics}
+library(skimr)
+library(rlang)
+
+skimmedData <- skim_to_wide(trainData)
+skimmedData
+```
+
+When we look at the table, n_missing values showing the number of missing values are always zero, the complete_rate values showing the ratio of completed values are always one, mean showing the mean has the highest value of 0.856 with VisitorTypeReturning_Visitor and sd showing standard deviation has the highest of 0.446 with MonthMay.
+
+### Section 3: Data Preprocessing
+
+-Knnimpute was used to fill the data set with meaningful values instead of all missing values.
+
+```{r  preProcess}
+library(RANN)
+preProcess_missingdata_model <- preProcess(trainData, method='knnImpute')
+preProcess_missingdata_model
+
+trainData <- predict(preProcess_missingdata_model, newdata = trainData)
+anyNA(trainData)
+```
+
+preProcess function has centered (subtract by mean) 14 variables, ignored 4 variables, used k=5 (considered 5 nearest neighbors) to predict the missing values and finally scaled (divide by standard deviation) 14 variables.
+The output FALSE shows the various preprocessing steps done in the process of knn imputation.
+
+-Creation dummy variables is used for converting the categorical variable to binary (1 or 0) variables.
+```{r dummy}
+library(dummies)
+
+dummies_model <- dummyVars(Revenue ~ ., data=trainData)
+trainData_dummies <- predict(dummies_model, newdata = trainData)
+trainData <- data.frame(trainData_dummies)
+str(trainData)
+```
+
+In the above case, i.e. the categorical variable WEEKEND column has been converted to new columns with 2 categories, WEEKENDTRUE and WEEKENDFALSE with one hot encoding.
+
+-Convertion all the numeric variables to range between 0 and 1.
+
+```{r range}
+preProcess_range_model <- preProcess(trainData, method='range')
+trainData <- predict(preProcess_range_model, newdata = trainData)
+trainData$Revenue <- y
+apply(trainData[, 1:30], 2, FUN=function(x){c('min'=min(x), 'max'=max(x))})
+
+#check all trainData columns category and convert it as factor
+sapply(trainData, class)
+trainData$Revenue = as.factor(as.logical(trainData$Revenue))
+```
+
+Now, the X variables are numeric whereas the Y is categorical.
+
+-Visualize the importance of variables using featurePlot().
+
+```{r featurePlot1}
+featurePlot(x = trainData[, 1:6], 
+            y = trainData$Revenue, 
+            plot = "box",
+            strip=strip.custom(par.strip.text=list(cex=.7)),
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")),
+            layout = c(6,1 ), 
+            auto.key = list(columns = 2))
+```
+
+The above charts have two blue box charts, one for each category Revenue (True, False). The black dot inside the box is average. Based on these results, the Administirative feature in Revenue=True is more stable than other features. The InformationDuration variable has the most outliers.
+
+```{r featurePlot2}
+featurePlot(x = trainData[, 7:9], 
+            y = trainData$Revenue, 
+            plot = "pairs",
+            strip=strip.custom(par.strip.text=list(cex=.7)),
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")),
+            auto.key = list(columns = 2))
+```
+
+The above chart shows a scatter chart matrix for PageValues, ExitRates, and BounceRates; bidirectional distribution plots for all three features and points in scatter plots colored by class property. As a result, a shifting distribution to PageValues has been observed.
+
+```{r featurePlot3}
+featurePlot(x = trainData[, 21:24], 
+            y = trainData$Revenue, 
+            plot = "box",
+            strip=strip.custom(par.strip.text=list(cex=.7)),
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")),
+            auto.key = list(columns = 3))
+```
+
+In the charts show Region, TrafficType, OperatingSystems and Browser features. The effect of the Browser feature is very small to the Revenue and the most stable of the other features is Region.
+
+```{r featurePlot4}
+featurePlot(x = trainData[, 11:20], 
+            y = trainData$Revenue, 
+            plot = "density",
+            strip=strip.custom(par.strip.text=list(cex=.7)),
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")),
+            auto.key = list(columns = 3))
+```
+
+The charts show the Month properties. MonthFeb also has the highest value for Revenue=True and little effect for Revenue=False. The MonthMar and MonthMay property chart is almost the same, from here it can be said that the effect of these months on Revenue may be equal.
+
+```{r featurePlot5}
+featurePlot(x = trainData[, 25:27], 
+            y = trainData$Revenue, 
+            plot = "density",
+            strip=strip.custom(par.strip.text=list(cex=.7)),
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")),
+            auto.key = list(columns = 3))
+```
+
+The charts show VisitorType features. The graphics for VisitorTypeNew_Visitor and VisitorTypeReturning_Visitor are almost the opposite of each other. The graphic has the highest value for VisitorTypeOther.
+
+```{r featurePlot6}
+featurePlot(x = trainData[, 28:29], 
+            y = trainData$Revenue, 
+            plot = "density",
+            strip=strip.custom(par.strip.text=list(cex=.7)),
+            scales = list(x = list(relation="free"), 
+                          y = list(relation="free")),
+            auto.key = list(columns = 3))
+```
+
+The charts show Weekend feature. The graphic for WeekendFALSE and WeekendTRUE are almost the opposite of each other.
+
+### Section 4: Training
+
+-Compution variable importance with kNN(k-Nearest Neighbors).
+
+-1.k-Nearest Neighbors
+What is kNN? kNN is a Supervised Machine Learning algorithm that classifies a new data point into the target class, depending on the features of its neighboring data points.
+
+```{r knn1}
+library(e1071)
+
+set.seed(100)
+model_knn <- train(Revenue ~ ., data=trainData, method='knn')
+model_knn
+
+plot(model_knn, main="Model Accuracies with knn")
+```
+
+Accuracy is the percentage of correctly classifies instances out of all instances.
+Kappa is like classification accuracy, except that it is normalized at the baseline of random chance on your dataset.
+
+The output shows 9765 samples, 29 predictors, 2 classes: False, True values. At k = 9 Accuracy with 83,6% and at k = 5 Kappa with 20,2%  has the highest value.
+
+The chart shows the Accuracy value of the model. As k value increased, Accuracy also increased.
+
+```{r knn2}
+varImportance_knn <- varImp(model_knn)
+plot(varImportance_knn, main="Variable Importance with knn")
+```
+
+In this graph, the important variable of the model are listed. As you can see, PageValue is listed as the most important variable, followed by ExitRates and ProductRelated_Duration.
+
+-Prepare the test dataset and predict
+The pre-processing is in the following sequence:
+Missing Value imputation –> One-Hot Encoding –> Range Normalization
+Also need to pass the testData through these models in the same sequence:
+preProcess_missingdata_model –> dummies_model –> preProcess_range_model
+
+```{r testData}
+# Impute missing values 
+testData2 <- predict(preProcess_missingdata_model, testData)  
+
+# Create dummy variables
+testData3 <- predict(dummies_model, testData2)
+
+# Transform the features to range between 0 and 1
+testData4 <- predict(preProcess_range_model, testData3)
+
+head(testData4[, 1:29])
+
+# to check all testData columns category and convert it as factor
+sapply(testData, class)
+testData$Revenue = as.factor(as.logical(testData$Revenue))
+```
+
+All variables in testData predicted with meaningful values instead of all missing values.
+
+### Section 5: Testing and Comparisons
+
+-Performance evaluation for testData
+
+```{r testknn}
+fitted <- predict(model_knn, testData4)
+confusionMatrix(reference = testData$Revenue, data = fitted, mode='everything', positive='TRUE')
+```
+
+The confusion matrix is a tabular representation to compare the predictions vs the references. 
+
+Now, Accuracy is 85% and Kappa is 21%.
+
+In the below output shows clearly how the algorithms performed in terms of Accuracy and Kappa and how consistent has it been.
+
+-2.LINEAR DISCRIMINANT ANALYSIS
+What is Linear Discriminant Analysis? Linear Discriminant Analysis is a generalization of Fisher's linear discriminant, a method used in statistics and other fields, to find a linear combination of features that characterizes or separates two or more classes of objects or events. 
+
+```{r lda}
+set.seed(100)
+model_lda = train(Revenue ~ ., data=trainData, method='lda')
+model_lda
+```
+
+According to Linear Discriminant Analysis model, Accuracy is 87,7% and Kappa is 40,3%.
+
+-3.DECISION TREE
+What is Decision Tree? Decision Tree is a graphical depiction of a decision and every potential outcome or result of making that decision. 
+
+```{r tree}
+set.seed(100)
+model_tree = train(Revenue ~ ., data=trainData, method='rpart')
+model_tree
+plot(model_tree)
+```
+
+The complexity parameter (cp) is used to control the size of the decision tree and to select the optimal tree size. If the cost of adding another variable to the decision tree from the current node is above the value of cp, then tree building does not continue. We could also say that tree construction does not continue unless it would decrease the overall lack of fit by a factor of cp.
+As the result says, The final value used for the model was cp = 0.04977079.
+
+According to the Decision Tree model, at cp = 0.04 Accuracy with 88,7% and at cp = 0.09 Kappa with 55,3%  has the highest value.
+
+-4.NAIVE BAYES
+What is Naive Bayes? Naive Bayes is a probabilistic machine learning model that’s used for classification task. The crux of the classifier is based on the Bayes theorem(P(A|B=P(B|A)P(A)/P(B)).
+
+```{r naivebayes}
+set.seed(100)
+model_nb = train(Revenue ~ ., data=trainData, method='naive_bayes')
+model_nb
+plot(model_nb)
+```
+
+According to the Naive Bayes model, Accuracy is 85,6% and Kappa is 20,7% for Revenue = True, Accuracy is 66% and Kappa is 26,3% for Revenue = False. On the chart, it has been shown how Accuracy increases from False to True.
+
+-5.GRADIENT BOOSTING MACHINES
+What is Gradient Boosting Machines? Gradient Boosting is a machine learning technique for regression and classification problems, which produces a prediction model in the form of an ensemble of weak prediction models, typically decision trees. 
+
+```{r gbm}
+set.seed(100)
+model_gbm <- train(Revenue ~ ., data = trainData, method = "gbm",verbose = FALSE)
+model_gbm
+plot(model_gbm)
+```
+
+According to Gradient Boosting Machines, While the number of tree was 50 and depth is 3, Accuracy with 89.99% and Kappa with 59.5% has the highest value.
+In the graph, Accuracy changes according to the Max Tree Dept increase are shown.Dept 2 and 3 have progressed almost the same.
+
+-6.RANDOM FOREST
+What is Random Forest? Random Forest are an ensemble learning method for classification, regression and other tasks that operate by constructing a multitude of decision trees at training time and outputting the class that is the mode of the classes (classification) or mean/average prediction (regression).
+
+```{r randomforest}
+set.seed(100)
+model_rf <- train(Revenue ~ ., data=trainData, method='rf')
+model_rf
+```
+
+mtry variable is the number of variables available for splitting at each tree node.
+
+When mtry = 15, Accuracy with 89.7% and Kappa with 58.5% has the highest value.
+
+-7.SUPPORT VECTOR MACHINES
+What is Support Vector Machine? Support Vector Machine is to find a hyperplane in an N-dimensional space(N — the number of features) that distinctly classifies the data points.
+
+```{r svm}
+set.seed(100)
+model_svm<- train(Revenue ~ . , data= trainData, method="svmRadial")
+model_svm
+```
+
+When c = 1, Accuracy with 88.7% and Kappa with 49.3% has the highest value.
+
+-Compare model performances using resample() function.
+
+```{r compare}
+models_compare <- resamples(list(KNN=model_knn, 
+                                 LINEARDISCRIMINANTANALYSIS=model_lda, 
+                                 DECISIONTREE=model_tree, 
+                                 NAIVEBAYES=model_nb, 
+                                 GRADIENTBOOSTINGMACHINES=model_gbm,
+                                 RANDOMFOREST=model_rf,
+                                 SUPPORTVECTORMACHINES=model_svm))
+summary(models_compare)
+```
+
+Different values of Accuracy and Kappa are shown in the result. If we look at the Max values of Accuracy, it reached the highest value with 90.5% in the GDA model. Likewise, Kappa reached the highest value with 63% in the GDA model.
+
+```{r compare2}
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+bwplot(models_compare, scales=scales)
+```
+
+In the graph, the values of Accuracy and Kappa are shown according to the models. Among these models, GDA Accuracy has the highest and KNN the lowest. The situation is the same in the Kappa.
+
+### Section 6: Prediction
+
+-Define the training control.
+
+The train() function takes a trControl argument that accepts the output of trainControl().Inside trainControl() takes into:
+Cross validation method to use.
+How the results should be summarised using a summary function.
+
+```{r}
+fitted <- predict(model_nb, testData4)
+confusionMatrix(reference = testData$Revenue, data = fitted, mode='everything', positive='TRUE')
+#Now Accuracy is 85% and Kappa is 18%
+
+fitted <- predict(model_lda, testData4)
+confusionMatrix(reference = testData$Revenue, data = fitted, mode='everything', positive='TRUE')
+#Now Accuracy is 87% and Kappa is 39%
+
+fitted <- predict(model_tree, testData4)
+confusionMatrix(reference = testData$Revenue, data = fitted, mode='everything', positive='TRUE')
+#Now Accuracy is 89% and Kappa is 51%
+
+fitControl <- trainControl(
+              method = 'cv',                   # k-fold cross validation
+              number = 10 )                    # number of folds 
+```
+
+The k-fold cross-validation method evaluates the model performance on different subset of the training data and then calculate the average prediction error rate. Randomly split the data set into k-subsets which is 10.
+
+-Train the model using knn.
+
+```{r trainknn}
+set.seed(100)
+knn = train(Revenue ~ ., data=trainData, method='knn', trControl=fitControl)
+knn
+```
+
+at k = 9 Accuracy with 85% and at k = 5 Kappa with 22,8%  has the highest value.
+
+-Train the model using Linear Discriminant Analysis.
+
+```{r trainlda}
+set.seed(100)
+lda = train(Revenue ~ ., data=trainData, method='lda', trControl=fitControl)
+lda
+```
+
+Accuracy is 87,7% and Kappa is 39,5%.
+
+-Train the model using Desicion Tree.
+
+```{r traintree}
+set.seed(100)
+tree = train(Revenue ~ ., data=trainData, method='rpart', trControl=fitControl)
+tree
+```
+
+At cp = 0.04 Accuracy with 88,8% and at cp = 0.09 Kappa with 54,8% has the highest value.
+
+-Train the model using Naive Bayes.
+
+```{r trainnb}
+set.seed(100)
+nb = train(Revenue ~ ., data=trainData, method='naive_bayes', trControl=fitControl)
+nb
+```
+
+Accuracy is 86,1% and Kappa is 22,5% for Revenue = True, Accuracy is 68,3% and Kappa is 27,7% for Revenue = False.
+
+-Train the model using Gradient Boosting Machines.
+
+```{r traingbm}
+set.seed(100)
+gbm <- train(Revenue ~ ., data = trainData, method = "gbm", trControl=fitControl, verbose = FALSE)
+gbm
+```
+
+While the number of tree was 100 and depth is 3, Accuracy with 90.09% and Kappa with 59.8% has the highest value.
+
+-Train the model using Random Forest.
+
+```{r trainrf}
+set.seed(100)
+rf <- train(Revenue ~ ., data=trainData, method='rf', trControl=fitControl)
+rf
+```
+
+When mtry = 15, Accuracy with 90% and Kappa with 59.1% has the highest value.
+
+-Train the model using Support Vector Machines.
+
+```{r trainsvm}
+set.seed(100)
+svm<- train(Revenue ~ . , data= trainData, method="svmRadial", trControl=fitControl)
+svm
+```
+
+When c = 1, Accuracy with 88.9% and Kappa with 49.5% has the highest value.
+
+- Compare model performances using resample() function.
+
+```{r compareagain}
+compare <- resamples(list(KNN=knn, 
+                          LINEARDISCRIMINANTANALYSIS=lda, 
+                          DECISIONTREE=tree, 
+                          NAIVEBAYES=nb, 
+                          GRADIENTBOOSTINGMACHINES=gbm,
+                          RANDOMFOREST=rf,
+                          SUPPORTVECTORMACHINES=svm))
+summary(compare)
+```
+
+Different values of Accuracy and Kappa are shown in the result. If we look at the Max values of Accuracy, it reached the highest value with 91.4% in the GDA model. Likewise, Kappa reached the highest value with 65% in the GDA model.
+
+```{r compareagain2}
+scales <- list(x=list(relation="free"), y=list(relation="free"))
+bwplot(compare, scales=scales)
+```
+
+In the graph, the values of Accuracy and Kappa are shown according to the models. Among these models, GDA Accuracy has the highest and KNN the lowest. The situation is the same in the Kappa.
+
+- Improving performance
+
+Selecting the important features using the recursive feature elimination(rfe).
+
+RFE works in 3 steps:
+1. Build a ML model on a training dataset and estimate the feature importances on the test dataset.
+2. Keeping priority to the most important variables, iterate through by building models of given subset sizes, that is, subgroups of most important predictors determined from step 1. Ranking of the predictors is recalculated in each iteration.
+3. The model performances are compared across different subset sizes to arrive at the optimal number and list of final predictors.
+
+```{r lmprofile}
+set.seed(100)
+subsets <- c(11:20, 25:27, 28:29)
+
+rfeCon <- rfeControl(functions = rfFuncs,
+                   method = "repeatedcv",
+                   repeats = 2,
+                   verbose = FALSE)
+
+rfeTrain <- rfe(x=trainData[, 11:20], y=trainData$Revenue,
+                 sizes = subsets,
+                 rfeControl = rfeCon)
+rfeTrain
+```
+
+As a result of all these predictions, Accuracy came as 84.3%. The top 5 variables are MonthAug, MonthDec, MonthFeb, MonthJul, MonthJune. This means that, the best subset size was estimated to be these 5 predictors.

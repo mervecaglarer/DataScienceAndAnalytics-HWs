@@ -1,0 +1,190 @@
+---
+title: "HW1"
+author: "Merve Çağlarer"
+date: "01 11 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# CENG4515 Data Science and Analytics Homework1
+
+### Import the relevant libraries.
+
+```{r library}
+
+library(dplyr)
+library(ggplot2)
+
+```
+
+
+### 1.Import “heros_information” dataset.
+
+```{r heros_data}
+
+heros_information <- read.csv("C:/Users/Merve/Downloads/DataScience/r codes/heroes_information.csv")
+summary(heros_information)
+
+```
+
+### 2. How many male characters that have blue eyes are there?
+
+```{r male_blueEyes}
+
+male_blueEyes <-heros_information[heros_information$Gender=="Male" & heros_information$Eye.color=="blue",]
+print(paste0("Number of male heros who have blue eyes: ", nrow(male_blueEyes)))
+
+```
+
+### 3.Remove bad alignment and answer Q2 again.
+
+```{r male_blueEyes_notBad}
+
+male_blueEyes_notBad <- male_blueEyes[male_blueEyes$Alignment!="bad",]
+print(paste0("Number of not bad and male heros who have blue eyes: ",nrow(male_blueEyes_notBad)))
+
+```
+
+### 4.What is the most common race and skin color? Create a summary table.
+
+```{r race_skinColor}
+
+#Filter heros which do not have Race is NA.
+race <- filter(heros_information, heros_information$Race != "-")
+skin.color <- filter(heros_information, heros_information$Skin.color != "-")
+
+race %>%
+  group_by(race$Race) %>%
+  count() %>% 
+  summarise(percent = n/nrow(race)*100) %>%
+  arrange(desc(percent))
+
+skin.color %>%
+  group_by(skin.color$Skin.color) %>%
+  count() %>% 
+  summarise(percent = n/nrow(race)*100) %>%
+  arrange(desc(percent))
+
+```
+
+#### These results show that the most common Race is Human and the most common Skin Color is green.
+## -------------------------------------------------------------------------------------------
+
+### 5.Find out the mean and standard deviation of height and weight. Find the tallest and shortest heroes.
+
+```{r tallest_shortest}
+
+#Filter heights which value is greater than 0
+height <- filter(heros_information, heros_information$Height >= 0)
+print(paste0("Mean of Height: ", mean(height$Height)))
+print(paste0("Standard Deviation of Height: ", sd(height$Height)))
+
+#Filter weights which value is greater than 0
+weight <- filter(heros_information, heros_information$Weight >= 0)
+print(paste0("Mean of Weight: ", mean(weight$Weight)))
+print(paste0("Standard Deviation of Weight: ", sd(weight$Weight)))
+
+tallest_hero <- height[order(height$Height),c(2,7)]
+tail(tallest_hero , n=1)
+
+shortest_hero <- height[order(height$Height),c(2,7)]
+head(shortest_hero, n=1)
+
+```
+
+### 6.Create tibbles showing weight and height for good and bad Marvel heros. Compare their mean and standard deviation weight and height.
+
+```{r good_bad}
+
+#Filter heros which have just good and bad alignment.
+GoodBad <- filter(heros_information, Alignment != "neutral")
+
+group_by(GoodBad, Alignment) %>%
+  summarise(
+    count = n(),
+    mean = mean(Height, na.rm = TRUE),
+    sd = sd(Height, na.rm = TRUE)
+  )
+
+group_by(GoodBad, Alignment) %>%
+  summarise(
+    count = n(),
+    mean = mean(Weight, na.rm = TRUE),
+    sd = sd(Weight, na.rm = TRUE)
+  )
+
+```
+
+#### These tibbles show that the height.mean of bad alignment is greater than good alignment and height.sd bad alignment is less than good alignment. On the other hand, the weight.mean of bad alignment is greater than good alignment and weight.sd bad alignment is also greater than good alignment.  
+## -------------------------------------------------------------------------------------------
+
+### 7.Import “super_hero_powers” dataset. Combine powers and information datasets. Give 10 point to each power that is TRUE. Compute the power of each superhero. Write a dplyr chain to plot power of female human heros and show differences for alignment.
+
+```{r powers}
+
+super_hero_powers <- read.csv("C:/Users/Merve/Downloads/DataScience/r codes/super_hero_powers.csv")
+summary(super_hero_powers)
+
+#Give 10 point to each power that is True and 0 point to each power that is False.
+super_hero_powers[super_hero_powers == "True"] <- 10
+super_hero_powers[super_hero_powers == "False"] <- 0
+super_hero_powers[2:168] <- apply(super_hero_powers[2:168], 2,
+                                  function(x) as.numeric(as.character(x)))
+
+#Add new column to super_hero_powers that has Total_Power. Combine heros_information and super_hero_powers Total_Power.
+Total_Power <- rowSums(super_hero_powers[2:168])
+new_column = c(Total_Power)
+super_hero_powers <- cbind(super_hero_powers, new_column)
+heros_information <- merge(data.frame(heros_information, row.names=NULL), data.frame(super_hero_powers$new_column, row.names=NULL), 
+      by = 0, all = TRUE)[-1]
+
+```
+
+### Pie Chart Example
+
+```{r pieChart}
+
+#Filter heros which are female and just do not include Alignment is NA.
+female <- heros_information[heros_information$Gender =="Female" & heros_information$Alignment !="-",]
+
+theme_set(theme_classic())
+df <- as.data.frame(table(female$Alignment))
+colnames(df) <- c("Alignment", "Total_Power")
+
+pie <- ggplot(df, aes(x = "", y = Total_Power, fill = factor(Alignment))) + 
+  geom_bar(width = 1, stat = "identity") +
+  theme(axis.line = element_blank(), 
+        plot.title = element_text(hjust=0.5)) + 
+  labs(fill = "Alignment", 
+       x = NULL, 
+       y = NULL, 
+       title = "Pie Chart", 
+       caption = "Source: mpg")
+
+pie + coord_polar(theta = "y", start=0)
+
+```
+
+#### This chart shows that the good alignment has more powers point than other alignments.  
+## -------------------------------------------------------------------------------------------
+
+### Boxplot
+
+```{r boxplot}
+
+#Filter heros which do not have alignment is NA.
+heros_information <- filter(heros_information, heros_information$Alignment != "-")
+
+ggplot(heros_information, aes(x = Alignment, y = super_hero_powers.new_column, fill = Alignment)) +
+  geom_boxplot() + 
+  labs(title = "Alignments Total_Power Boxplot", 
+       x = "Alignments", 
+       y = "Total Power") +
+  stat_summary(fun.y = mean, geom = "point", shape = 2, size = 2)
+
+```
+
+#### This Boxplot shows that the good alignment has more powers point than bad alignments and bad alignment has more powers point than neutral alignment. In addition, good alignment has bigger mean others.
